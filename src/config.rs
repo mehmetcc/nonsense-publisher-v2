@@ -8,7 +8,7 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn new() -> anyhow::Result<Self> {
         let config = config::Config::builder()
-            .add_source(config::File::with_name("Config"))
+            .add_source(config::File::with_name("Config").required(false))
             .build()?;
 
         config.try_deserialize::<AppConfig>().map_err(|e| e.into())

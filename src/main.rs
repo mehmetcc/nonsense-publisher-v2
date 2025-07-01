@@ -14,25 +14,32 @@ mod nonsense;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-
     init_logger();
     configure_pool()?;
 
     let config = Arc::new(AppConfig::new()?);
-    let throttle = if config.as_ref().concurrency.throttling_enabled {
-        Some(Duration::from_millis(
-            config.as_ref().concurrency.throttling_ms,
-        ))
+    let throttle = if config.concurrency.throttling_enabled {
+        Some(Duration::from_millis(config.concurrency.throttling_ms))
     } else {
         None
     };
 
-    let (tx, rx) = crossbeam_channel::bounded::<Nonsense>(10000);
+    let (tx, rx) = crossbeam_channel::bounded::<Nonsense>(10_000);
+    let (shutdown_tx, shutdown_rx) = crossbeam_channel::bounded::<()>(1);
+
+    // Handle SIGINT
+    {
+        let shutdown_tx = shutdown_tx.clone();
+        ctrlc::set_handler(move || {
+            let _ = shutdown_tx.send(());
+        })?;
+    }
+
     start_generators(available_cores(), tx, throttle);
     tracing::info!("Started {} generator threads", available_cores());
 
     let sink = KafkaSink::new(config.clone())?;
-    sink.dispatch_loop(rx).await?;
+    sink.dispatch_loop(rx, shutdown_rx).await?;
 
     Ok(())
 }
@@ -52,5 +59,5 @@ fn configure_pool() -> anyhow::Result<()> {
 }
 
 fn available_cores() -> usize {
-    num_cpus::get_physical() - 1
+    num_cpus::get_physical().saturating_sub(1).max(1)
 }

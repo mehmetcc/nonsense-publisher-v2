@@ -1,7 +1,7 @@
 use crate::nonsense::Nonsense;
 use crossbeam_channel::Sender;
 use std::time::Duration;
-use tracing::{debug, debug_span, error, error_span, info, info_span, instrument};
+use tracing::{error, error_span, info, info_span, instrument};
 
 pub fn start_generators(num_threads: usize, tx: Sender<Nonsense>, throttle: Option<Duration>) {
     for i in 0..num_threads {
@@ -13,8 +13,8 @@ pub fn start_generators(num_threads: usize, tx: Sender<Nonsense>, throttle: Opti
 
 #[instrument(fields(thread_id = thread_id))]
 fn generate_loop(thread_id: usize, tx: Sender<Nonsense>, throttle: Option<Duration>) {
-    debug_span!("generator_started", thread_id = thread_id)
-        .in_scope(|| debug!("Starting thread with id: {:?}", thread_id));
+    info_span!("generator_started", thread_id = thread_id)
+        .in_scope(|| info!("Starting thread with id: {:?}", thread_id));
     loop {
         let nonsense = Nonsense::new();
         if tx.send(nonsense).is_err() {

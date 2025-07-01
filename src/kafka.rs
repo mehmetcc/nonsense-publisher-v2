@@ -1,7 +1,6 @@
 use crate::config::AppConfig;
 use crate::nonsense::Nonsense;
-use crossbeam_channel::Receiver;
-use crossbeam_channel::RecvTimeoutError;
+use crossbeam_channel::{select, Receiver};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
 use std::sync::Arc;
@@ -22,28 +21,44 @@ impl KafkaSink {
         })
     }
 
-    pub async fn dispatch_loop(&self, rx: Receiver<Nonsense>) -> anyhow::Result<()> {
+    pub async fn dispatch_loop(
+        &self,
+        rx: Receiver<Nonsense>,
+        shutdown_rx: Receiver<()>,
+    ) -> anyhow::Result<()> {
         let mut buffer: Vec<Nonsense> = Vec::new();
         let mut last_flush = Instant::now();
 
         loop {
-            match rx.recv_timeout(self.flush_timeout()) {
-                Ok(message) => buffer.push(message),
-                Err(RecvTimeoutError::Timeout) => {
-                    let flushed_len = self
-                        .flush_n(&mut buffer, self.config.dispatch.batch_size)
-                        .await?;
-                    self.log_flush(self.flush_timeout(), flushed_len);
+            select! {
+                recv(shutdown_rx) -> _ => {
+                    tracing::info!("Shutdown signal received. Flushing remaining messages.");
+                    let len = buffer.len();
+                    let flushed_len = self.flush_n(&mut buffer, len).await?;
+                    self.log_flush(last_flush.elapsed(), flushed_len);
+                    return Ok(());
+                }
+
+                recv(rx) -> msg => {
+                    if let Ok(message) = msg {
+                        buffer.push(message);
+                    } else {
+                        return Ok(()); // sender hung up
+                    }
+                }
+
+                default(Duration::from_millis(self.config.dispatch.flush_interval_ms)) => {
+                    let len = self.config.dispatch.batch_size;
+                    let flushed_len = self.flush_n(&mut buffer, len).await?;
+                    self.log_flush(last_flush.elapsed(), flushed_len);
                     last_flush = Instant::now();
                 }
-                Err(RecvTimeoutError::Disconnected) => return Ok(()), // shutdown
             }
 
             if buffer.len() >= self.config.dispatch.batch_size {
-                let flushed_len = self
-                    .flush_n(&mut buffer, self.config.dispatch.batch_size)
-                    .await?;
-                self.log_flush(self.elapsed_since_last_flush(last_flush), flushed_len);
+                let len = self.config.dispatch.batch_size;
+                let flushed_len = self.flush_n(&mut buffer, len).await?;
+                self.log_flush(last_flush.elapsed(), flushed_len);
                 last_flush = Instant::now();
             }
         }
@@ -71,10 +86,6 @@ impl KafkaSink {
         let to_send = buffer.drain(..count).collect::<Vec<_>>();
         self.send_batch(to_send).await?;
         Ok(count)
-    }
-
-    fn flush_timeout(&self) -> Duration {
-        Duration::from_millis(self.config.dispatch.flush_interval_ms)
     }
 
     async fn send_batch(&self, messages: Vec<Nonsense>) -> anyhow::Result<()> {

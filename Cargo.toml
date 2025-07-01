@@ -1,5 +1,5 @@
 [package]
-name = "nonsense-producer-v2"
+name = "nonsense-publisher-v2"
 version = "0.1.0"
 edition = "2024"
 
@@ -19,3 +19,4 @@ dotenv = "0.15.0"
 rdkafka = { version = "0.37.0", features = ["tokio"] }
 config = "0.15.11"
 tokio = { version = "1.45.1", features = ["full"] }
+ctrlc = "3.4.7"
