@@ -11,21 +11,26 @@ pub fn start_generators(num_threads: usize, tx: Sender<Nonsense>, throttle: Opti
     }
 }
 
-#[instrument]
+#[instrument(fields(thread_id = thread_id))]
 fn generate_loop(thread_id: usize, tx: Sender<Nonsense>, throttle: Option<Duration>) {
-    info_span!("generator_started", thread_id = thread_id)
-        .in_scope(|| info!("Starting thread with id: {:?}", thread_id));
+    debug_span!("generator_started", thread_id = thread_id)
+        .in_scope(|| debug!("Starting thread with id: {:?}", thread_id));
     loop {
         let nonsense = Nonsense::new();
         if tx.send(nonsense).is_err() {
-            error_span!("send_failed").in_scope(|| {
+            error_span!("send_failed", thread_id = thread_id).in_scope(|| {
                 error!("Failed to send nonsense to channel");
             });
-            break;
+            continue;
         }
 
         if let Some(duration) = throttle {
-            info_span!("throttle_started", duration = format!("{:?}", duration)).in_scope(|| {
+            info_span!(
+                "throttle_started",
+                thread_id = thread_id,
+                duration = format!("{:?}", duration)
+            )
+            .in_scope(|| {
                 info!("Throttling");
             });
             std::thread::sleep(duration);

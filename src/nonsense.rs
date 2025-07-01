@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
-use fake::Fake;
 use fake::faker::address::raw::{CityName, CountryName, StreetName, ZipCode};
 use fake::faker::company::raw::CompanyName;
 use fake::faker::name::raw::{FirstName, LastName, Title};
 use fake::locales::EN;
+use fake::Fake;
 use serde::Serialize;
 use uuid::Uuid;
 

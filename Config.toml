@@ -1,0 +1,16 @@
+# Config.toml
+[producer]
+brokers = "localhost:9092"
+topic = "nonsense.generated"
+compression = "snappy"
+acks = "1"
+timeout_ms = 5000
+buffering_max_ms = 10
+
+[dispatch]
+batch_size = 100
+flush_interval_ms = 50
+
+[concurrency]
+throttling_enabled = false
+throttling_ms = 100

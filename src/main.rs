@@ -1,25 +1,38 @@
+use crate::config::AppConfig;
 use crate::generator::start_generators;
+use crate::kafka::KafkaSink;
 use crate::nonsense::Nonsense;
-use tracing::{debug, debug_span};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::{fmt, prelude::*};
 
+mod config;
 mod generator;
+mod kafka;
 mod nonsense;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
     init_logger();
     configure_pool()?;
 
-    let (tx, rx) = crossbeam_channel::bounded::<Nonsense>(10000);
-    start_generators(available_cores(), tx, None);
+    let config = Arc::new(AppConfig::new()?);
+    let throttle = if config.as_ref().concurrency.throttling_enabled {
+        Some(Duration::from_millis(
+            config.as_ref().concurrency.throttling_ms,
+        ))
+    } else {
+        None
+    };
 
-    for msg in rx.iter() {
-        debug_span!("received_message").in_scope(|| {
-            debug!("RECV: {:?}", msg);
-        });
-    }
+    let (tx, rx) = crossbeam_channel::bounded::<Nonsense>(10000);
+    start_generators(available_cores(), tx, throttle);
+    tracing::info!("Started {} generator threads", available_cores());
+
+    let sink = KafkaSink::new(config.clone())?;
+    sink.dispatch_loop(rx).await?;
 
     Ok(())
 }
